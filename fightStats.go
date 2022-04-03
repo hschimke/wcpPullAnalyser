@@ -23,7 +23,7 @@ func (fd fightDifficulty) String() (difficultyName string) {
 	case 5:
 		difficultyName = "mythic"
 	default:
-		difficultyName = "unknown"
+		difficultyName = fmt.Sprint("unknown (", int32(fd), ")")
 	}
 	return difficultyName
 }
