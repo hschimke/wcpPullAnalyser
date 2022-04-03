@@ -1,11 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"fmt"
-	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/hasura/go-graphql-client"
@@ -35,106 +35,31 @@ type Fight struct {
 	Kill       graphql.Boolean
 }
 
-type fightDifficulty int32
-
-func (fd fightDifficulty) String() (difficultyName string) {
-	switch fd {
-	case 2:
-		difficultyName = "raidfinder"
-	case 3:
-		difficultyName = "normal"
-	case 4:
-		difficultyName = "heroic"
-	case 5:
-		difficultyName = "mythic"
-	default:
-		difficultyName = "unknown"
-	}
-	return difficultyName
-}
-
-type FightKillTime struct {
-	Difficulty fightDifficulty
-	FirstSeen  time.Time
-	FirstKill  time.Time
-	Killed     bool
-	Count      uint64
-}
-
-func (fkt FightKillTime) String() string {
-	killText := "--"
-	if fkt.Killed {
-		killText = fmt.Sprint(fkt.FirstKill)
-	}
-	return fmt.Sprint(fkt.FirstSeen, " [X] ", killText, " :: ", fkt.Count)
-}
-
-type FightStats struct {
-	Name string
-	data map[string]map[fightDifficulty]FightKillTime
-}
-
-func NewFightStats() *FightStats {
-	return &FightStats{
-		data: make(map[string]map[fightDifficulty]FightKillTime),
-	}
-}
-
-func (fs *FightStats) ProcessFight(endTime time.Time, fight Fight) {
-	diff := fightDifficulty(fight.Difficulty)
-	name := string(fight.Name)
-	if _, fndName := fs.data[name]; !fndName {
-		fs.data[name] = make(map[fightDifficulty]FightKillTime)
-	}
-	if _, fnd := fs.data[name][diff]; !fnd {
-		fs.data[name][diff] = FightKillTime{
-			Difficulty: diff,
-			Count:      0,
-			FirstSeen:  time.Now().Add(time.Hour * 300),
-			FirstKill:  time.Now().Add(time.Hour * 300),
-			Killed:     false,
-		}
-	}
-	itm := fs.data[name][diff]
-
-	if itm.FirstSeen.After(endTime) {
-		itm.FirstSeen = endTime
-	}
-	if bool(fight.Kill) && itm.FirstKill.After(endTime) {
-		itm.FirstKill = endTime
-		itm.Killed = true
-	}
-	itm.Count++
-
-	fs.data[name][diff] = itm
-}
-
-func (fs FightStats) String() string {
-	var sb strings.Builder
-
-	for name, fdMap := range fs.data {
-		sb.WriteString(name)
-		sb.WriteString("\n")
-		for dif, st := range fdMap {
-			sb.WriteString("\t")
-			sb.WriteString(dif.String())
-			sb.WriteString(": ")
-			sb.WriteString(st.String())
-			sb.WriteString("\n")
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
-}
-
-func (fs FightStats) CSV(w io.Writer) error {
-	panic("unimplemented")
-}
-
 func main() {
 	id := os.Getenv("CLIENT_ID")
 	secret := os.Getenv("CLIENT_SECRET")
+
+	useGuild := flag.Bool("guild", false, "Use Guild search")
+	useUser := flag.Bool("user", false, "Use user search")
+
+	guildName := flag.String("name", "", "Name of user or guild")
+	regionName := flag.String("region", "", "Region")
+	serverName := flag.String("server", "", "Server")
+
+	useCsv := flag.Bool("csv", false, "Output to csv")
+	fileName := flag.String("fn", "output", "output file name")
+
+	flag.Parse()
+
+	if !(*useGuild || *useUser) {
+		fmt.Println("Must specify either user or guild")
+		return
+	}
+
+	if *useUser {
+		panic("user not yet suported")
+	}
+
 	conf := clientcredentials.Config{
 		ClientID:     id,
 		ClientSecret: secret,
@@ -148,7 +73,7 @@ func main() {
 	morePages := true
 	for page := int8(1); morePages; page++ {
 		fmt.Println("Fetch page ", page)
-		result, resErr := getPage(gqlClient, page)
+		result, resErr := getGuildPage(gqlClient, *guildName, *serverName, *regionName, page)
 		if resErr != nil {
 			panic(resErr.Error())
 		}
@@ -167,15 +92,30 @@ func main() {
 		}
 	}
 
-	fmt.Println(fightStats)
+	if len(*fileName) > 0 {
+		file, fileErr := os.Create(*fileName)
+		if fileErr != nil {
+			panic(fileErr.Error())
+		}
+		defer file.Close()
+		outBuf := bufio.NewWriter(file)
+		if *useCsv {
+			fightStats.CSV(outBuf)
+		} else {
+			outBuf.WriteString(fightStats.String())
+		}
+		outBuf.Flush()
+	} else {
+		fmt.Println(fightStats)
+	}
 }
 
-func getPage(client *graphql.Client, page int8) (QueryGuild, error) {
+func getGuildPage(client *graphql.Client, guildName string, guildServer string, guildRegion string, page int8) (QueryGuild, error) {
 	var query QueryGuild
 	variables := map[string]any{
-		"guild":  graphql.String("hooac"),
-		"server": graphql.String("hyjal"),
-		"region": graphql.String("us"),
+		"guild":  graphql.String(guildName),
+		"server": graphql.String(guildServer),
+		"region": graphql.String(guildRegion),
 		"page":   graphql.Int(page),
 	}
 	if e := client.Query(context.Background(), &query, variables); e != nil {

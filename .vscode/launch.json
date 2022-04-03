@@ -10,7 +10,8 @@
             "request": "launch",
             "mode": "auto",
             "program": "${fileDirname}",
-            "envFile": "${workspaceFolder}/.env"
+            "envFile": "${workspaceFolder}/.env",
+            "args": ["--guild", "--name", "hooac", "--region", "us", "--server", "hyjal", "--csv=true"]
         }
     ]
 }
